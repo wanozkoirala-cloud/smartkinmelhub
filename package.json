@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "dev": "vite --config vite.local.config.mjs --configLoader native --host 127.0.0.1",
+    "build": "vite build --config vite.local.config.mjs --configLoader native",
+    "preview": "vite preview --config vite.local.config.mjs --configLoader native --host 127.0.0.1"
   },
   "dependencies": {
   "lucide-react": "^0.468.0",
