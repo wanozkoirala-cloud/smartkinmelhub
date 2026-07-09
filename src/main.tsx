@@ -12,12 +12,15 @@ import {
   Home,
   Info,
   Landmark,
+  Mail,
   MapPin,
   Menu,
+  MessageCircle,
   Minus,
   PackageCheck,
   Phone,
   Plus,
+  QrCode,
   Receipt,
   Search,
   ShieldCheck,
@@ -27,8 +30,8 @@ import {
   Star,
   Trash2,
   Truck,
-  User,
   Wallet,
+  X,
   Zap
 } from "lucide-react";
 import "./styles.css";
@@ -52,6 +55,19 @@ type Product = {
 type CartItem = {
   product: Product;
   quantity: number;
+};
+
+type CheckoutDetails = {
+  fullName: string;
+  mobile: string;
+  city: string;
+  address: string;
+};
+
+type OrderNotice = {
+  message: string;
+  whatsappUrl: string;
+  emailUrl: string;
 };
 
 type Route =
@@ -229,6 +245,85 @@ const products: Product[] = [
 
 const banners = ["Mega Clearance Week", "Brand New Arrivals", "Mobile Deals Under NPR 10,000"];
 
+const categoryOverviews: Record<string, { summary: string; highlights: string[] }> = {
+  All: {
+    summary: "Browse every owner-managed SmartKinmelHub product in one place.",
+    highlights: ["Verified stock", "Clear prices", "Fast support"]
+  },
+  Electronics: {
+    summary: "Audio, gadgets, accessories, and useful tech products for daily life.",
+    highlights: ["Trending devices", "Warranty support", "Digital payment ready"]
+  },
+  "Mobile Phones": {
+    summary: "Smartphones selected for battery, camera, storage, and Nepal network use.",
+    highlights: ["5G and 4G options", "Brand warranty", "Easy checkout"]
+  },
+  Computers: {
+    summary: "Laptops and computer products for students, offices, creators, and home users.",
+    highlights: ["Productivity picks", "Reliable specs", "Support after purchase"]
+  },
+  "Home Appliances": {
+    summary: "Appliances for daily household comfort, storage, cooking, and cleaning.",
+    highlights: ["Delivery coordination", "Warranty details", "Seasonal offers"]
+  },
+  Fashion: {
+    summary: "Seasonal style products and practical essentials for everyday shopping.",
+    highlights: ["Fresh campaigns", "Limited stock", "Easy returns check"]
+  },
+  Beauty: {
+    summary: "Personal care and gift-ready beauty products with clear product details.",
+    highlights: ["Promotional packs", "Sealed products", "Customer support"]
+  },
+  Health: {
+    summary: "Helpful wellness and health-related daily-use products.",
+    highlights: ["Practical picks", "Support confirmation", "Trusted checkout"]
+  },
+  "Home and Living": {
+    summary: "Useful home products for comfort, organization, and everyday living.",
+    highlights: ["Home essentials", "Smart pricing", "Delivery support"]
+  },
+  Kitchen: {
+    summary: "Kitchen appliances, cooking helpers, and practical household tools.",
+    highlights: ["Daily deals", "Warranty support", "Easy cleaning picks"]
+  },
+  Grocery: {
+    summary: "A ready section for grocery and daily household inventory.",
+    highlights: ["Daily essentials", "Fast updates", "Local delivery planning"]
+  },
+  "Baby Products": {
+    summary: "A prepared area for baby care and family products.",
+    highlights: ["Family-focused", "Clear stock", "Support before dispatch"]
+  },
+  Sports: {
+    summary: "Fitness, sports, and activity products for active shoppers.",
+    highlights: ["Workout gear", "Outdoor picks", "Seasonal stock"]
+  },
+  Automotive: {
+    summary: "A category area for vehicle accessories and useful automotive products.",
+    highlights: ["Practical accessories", "Stock confirmation", "Support by phone"]
+  },
+  Books: {
+    summary: "A prepared section for books, learning, and reading products.",
+    highlights: ["Learning picks", "Simple browsing", "Order confirmation"]
+  },
+  "Office Supplies": {
+    summary: "Office and study supplies for businesses, students, and home workspaces.",
+    highlights: ["Bulk-friendly", "Useful essentials", "Fast reorder flow"]
+  },
+  Gaming: {
+    summary: "Gaming accessories and gear for better play, typing, and setup comfort.",
+    highlights: ["New arrivals", "Performance gear", "Clear specs"]
+  },
+  Accessories: {
+    summary: "Smart watches, add-ons, and useful extras for phones, laptops, and daily carry.",
+    highlights: ["Best sellers", "Gift-ready", "Affordable picks"]
+  },
+  "Clearance Sale": {
+    summary: "Limited-stock clearance, overstock, and promotional products at smarter prices.",
+    highlights: ["Limited quantity", "Owner-managed stock", "Fast checkout"]
+  }
+};
+
 const routeFromHash = (): Route => {
   const hash = window.location.hash.replace(/^#\/?/, "");
   const [page, ...rest] = hash.split("/");
@@ -374,7 +469,15 @@ function App() {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [heroIndex, setHeroIndex] = useState(0);
+  const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("eSewa");
+  const [checkoutDetails, setCheckoutDetails] = useState<CheckoutDetails>({
+    fullName: "",
+    mobile: "",
+    city: "",
+    address: ""
+  });
+  const [orderNotice, setOrderNotice] = useState<OrderNotice | null>(null);
 
   useEffect(() => {
     const onHashChange = () => setRoute(routeFromHash());
@@ -401,12 +504,26 @@ function App() {
 
   const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
   const subtotal = cart.reduce((total, item) => total + item.product.price * item.quantity, 0);
+  const cartSavings = cart.reduce(
+    (total, item) => total + (item.product.oldPrice - item.product.price) * item.quantity,
+    0
+  );
   const deliveryFee = subtotal > 0 && subtotal < 10000 ? 250 : 0;
   const grandTotal = subtotal + deliveryFee;
   const routeCategory = route.name === "category" ? route.category : selectedCategory;
   const visibleProducts = routeCategory === "All" ? products : products.filter((product) => product.category === routeCategory);
   const activeBanner = banners[heroIndex % banners.length];
   const activeProduct = route.name === "product" ? products.find((product) => product.id === route.id) : undefined;
+  const categoryOverview = categoryOverviews[routeCategory] ?? categoryOverviews.All;
+  const selectedPaymentQr = paymentMethod === "Khalti" || paymentMethod === "Fonepay" ? "/payments/payment-qr-2.jpeg" : "/payments/payment-qr-1.jpeg";
+  const requiresDigitalPayment = paymentMethod !== "Cash on Delivery";
+  const canPlaceOrder = Boolean(
+    cart.length > 0 &&
+      checkoutDetails.fullName.trim() &&
+      checkoutDetails.mobile.trim() &&
+      checkoutDetails.city.trim() &&
+      checkoutDetails.address.trim()
+  );
 
   const addToCart = (product: Product) => {
     setCart((current) => {
@@ -430,10 +547,57 @@ function App() {
 
   const openCategory = (category: string) => {
     setSelectedCategory(category);
+    setIsCategoryMenuOpen(false);
     navigate({ name: "category", category });
   };
 
   const openProduct = (product: Product) => navigate({ name: "product", id: product.id });
+
+  const updateCheckoutDetail = (field: keyof CheckoutDetails, value: string) => {
+    setCheckoutDetails((current) => ({ ...current, [field]: value }));
+  };
+
+  const buildOrderMessage = () => {
+    const items = cart
+      .map(
+        (item) =>
+          `- ${item.product.name} x ${item.quantity} = ${money(item.product.price * item.quantity)}`
+      )
+      .join("\n");
+
+    return [
+      "New SmartKinmelHub order",
+      "",
+      `Customer: ${checkoutDetails.fullName}`,
+      `Mobile: ${checkoutDetails.mobile}`,
+      `City/District: ${checkoutDetails.city}`,
+      `Address: ${checkoutDetails.address}`,
+      `Payment: ${paymentMethod}`,
+      "",
+      "Items:",
+      items,
+      "",
+      `Subtotal: ${money(subtotal)}`,
+      `Delivery: ${deliveryFee === 0 ? "Free" : money(deliveryFee)}`,
+      `Total: ${money(grandTotal)}`,
+      "",
+      "Please call or message the buyer to confirm stock, payment and delivery."
+    ].join("\n");
+  };
+
+  const handlePlaceOrder = () => {
+    const message = buildOrderMessage();
+    const whatsappUrl = `https://wa.me/9779851223170?text=${encodeURIComponent(message)}`;
+    const emailUrl = `mailto:wanozkoirala@gmail.com?subject=${encodeURIComponent(
+      "New SmartKinmelHub order"
+    )}&body=${encodeURIComponent(message)}`;
+
+    setOrderNotice({ message, whatsappUrl, emailUrl });
+    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+    window.open(emailUrl, "_blank", "noopener,noreferrer");
+    setCart([]);
+    navigate({ name: "success" });
+  };
 
   const navLink = (label: string, target: Route) => (
     <button className={route.name === target.name ? "active-link" : ""} onClick={() => navigate(target)}>
@@ -631,6 +795,20 @@ function App() {
           <h1>{routeCategory}</h1>
         </div>
       </div>
+      <div className="category-overview">
+        <div>
+          <p>{categoryOverview.summary}</p>
+          <div className="overview-tags">
+            {categoryOverview.highlights.map((highlight) => (
+              <span key={highlight}>{highlight}</span>
+            ))}
+          </div>
+        </div>
+        <button className="secondary-dark-button" onClick={() => navigate({ name: "cart" })}>
+          <ShoppingCart size={18} />
+          View Cart
+        </button>
+      </div>
       <div className="product-grid">
         {visibleProducts.length > 0 ? (
           visibleProducts.map((product) => (
@@ -741,13 +919,17 @@ function App() {
                   <h3>{item.product.name}</h3>
                   <p>{item.product.category}</p>
                   <strong>{money(item.product.price)}</strong>
+                  <small>{money(item.product.price * item.quantity)} item total</small>
                 </div>
                 <div className="quantity-control">
                   <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)}>
                     <Minus size={15} />
                   </button>
                   <span>{item.quantity}</span>
-                  <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)}>
+                  <button
+                    disabled={item.quantity >= item.product.stock}
+                    onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
+                  >
                     <Plus size={15} />
                   </button>
                 </div>
@@ -757,10 +939,32 @@ function App() {
               </div>
             ))
           )}
+          {cart.length > 0 && (
+            <div className="cart-support">
+              <div>
+                <Truck size={20} />
+                <span>Delivery confirmation before dispatch</span>
+              </div>
+              <div>
+                <ShieldCheck size={20} />
+                <span>Manual stock and warranty check</span>
+              </div>
+              <div>
+                <MessageCircle size={20} />
+                <span>WhatsApp follow-up after order</span>
+              </div>
+            </div>
+          )}
         </div>
-        <OrderSummary subtotal={subtotal} deliveryFee={deliveryFee} grandTotal={grandTotal}>
+        <OrderSummary subtotal={subtotal} deliveryFee={deliveryFee} grandTotal={grandTotal} savings={cartSavings}>
+          {subtotal > 0 && subtotal < 10000 && (
+            <p className="summary-note">Add {money(10000 - subtotal)} more for free delivery.</p>
+          )}
           <button className="primary-button" disabled={cart.length === 0} onClick={() => navigate({ name: "checkout" })}>
             Proceed to Checkout
+          </button>
+          <button className="secondary-dark-button" onClick={() => navigate({ name: "home" })}>
+            Continue Shopping
           </button>
         </OrderSummary>
       </div>
@@ -787,10 +991,26 @@ function App() {
               Delivery Details
             </h2>
             <div className="form-grid">
-              <input placeholder="Full name" />
-              <input placeholder="Mobile number" />
-              <input placeholder="City or district" />
-              <input placeholder="Area, street, landmark" />
+              <input
+                value={checkoutDetails.fullName}
+                onChange={(event) => updateCheckoutDetail("fullName", event.target.value)}
+                placeholder="Full name"
+              />
+              <input
+                value={checkoutDetails.mobile}
+                onChange={(event) => updateCheckoutDetail("mobile", event.target.value)}
+                placeholder="Mobile number"
+              />
+              <input
+                value={checkoutDetails.city}
+                onChange={(event) => updateCheckoutDetail("city", event.target.value)}
+                placeholder="City or district"
+              />
+              <input
+                value={checkoutDetails.address}
+                onChange={(event) => updateCheckoutDetail("address", event.target.value)}
+                placeholder="Area, street, landmark"
+              />
             </div>
           </section>
           <section>
@@ -810,6 +1030,21 @@ function App() {
                 </button>
               ))}
             </div>
+            {requiresDigitalPayment && (
+              <div className="qr-payment">
+                <div>
+                  <h3>
+                    <QrCode size={19} />
+                    Scan and Pay
+                  </h3>
+                  <p>Use this QR for {paymentMethod}. Keep the payment screenshot for order confirmation.</p>
+                </div>
+                <div className="qr-grid">
+                  <img src={selectedPaymentQr} alt={`${paymentMethod} payment QR`} />
+                  <img src={selectedPaymentQr === "/payments/payment-qr-1.jpeg" ? "/payments/payment-qr-2.jpeg" : "/payments/payment-qr-1.jpeg"} alt="Alternative digital payment QR" />
+                </div>
+              </div>
+            )}
           </section>
           <section>
             <h2>
@@ -818,18 +1053,28 @@ function App() {
             </h2>
             <p>Kathmandu Valley delivery starts from 24 hours. Outside valley delivery is confirmed by phone.</p>
           </section>
+          <section>
+            <h2>
+              <Mail size={20} />
+              Order Notification
+            </h2>
+            <p>
+              After Place Order, a prepared WhatsApp message to +977 9851223170 and email draft to
+              wanozkoirala@gmail.com will open with the buyer and cart details.
+            </p>
+          </section>
         </div>
-        <OrderSummary subtotal={subtotal} deliveryFee={deliveryFee} grandTotal={grandTotal}>
+        <OrderSummary subtotal={subtotal} deliveryFee={deliveryFee} grandTotal={grandTotal} savings={cartSavings}>
           <button
             className="primary-button"
-            disabled={cart.length === 0}
-            onClick={() => {
-              setCart([]);
-              navigate({ name: "success" });
-            }}
+            disabled={!canPlaceOrder}
+            onClick={handlePlaceOrder}
           >
             Place Order
           </button>
+          {!canPlaceOrder && cart.length > 0 && (
+            <p className="summary-note">Fill all delivery fields before placing the order.</p>
+          )}
         </OrderSummary>
       </div>
     </section>
@@ -846,7 +1091,22 @@ function App() {
         <section className="page-panel success-panel">
           <CheckCircle2 size={72} />
           <h1>Order request received</h1>
-          <p>SmartKinmelHub will call to confirm stock, delivery address, and payment before dispatch.</p>
+          <p>
+            SmartKinmelHub will call or message to confirm stock, delivery address, and payment before
+            dispatch.
+          </p>
+          {orderNotice && (
+            <div className="notice-actions">
+              <a className="primary-button" href={orderNotice.whatsappUrl} target="_blank" rel="noreferrer">
+                <MessageCircle size={18} />
+                Send WhatsApp Again
+              </a>
+              <a className="secondary-dark-button" href={orderNotice.emailUrl}>
+                <Mail size={18} />
+                Email Order Again
+              </a>
+            </div>
+          )}
           <button className="primary-button" onClick={() => navigate({ name: "home" })}>
             Continue Shopping
           </button>
@@ -927,7 +1187,11 @@ function App() {
     <div className="site-shell">
       <header className="top-header">
         <div className="header-main">
-          <button className="icon-button menu-button" aria-label="Open menu" onClick={() => openCategory("All")}>
+          <button
+            className="icon-button menu-button"
+            aria-label="Open category menu"
+            onClick={() => setIsCategoryMenuOpen(true)}
+          >
             <Menu />
           </button>
           <button className="brand" onClick={() => navigate({ name: "home" })}>
@@ -963,11 +1227,7 @@ function App() {
               </div>
             )}
           </div>
-          <nav className="header-actions" aria-label="Account and cart">
-            <button onClick={() => navigate({ name: "about" })}>
-              <User size={19} />
-              Account
-            </button>
+          <nav className="header-actions" aria-label="Alerts and cart">
             <button onClick={() => navigate({ name: "contact" })}>
               <Bell size={19} />
               Alerts
@@ -995,6 +1255,36 @@ function App() {
           ))}
         </div>
       </header>
+
+      {isCategoryMenuOpen && (
+        <div className="drawer-backdrop" onClick={() => setIsCategoryMenuOpen(false)}>
+          <aside className="category-drawer" onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-head">
+              <div>
+                <p>Shop by category</p>
+                <h2>All Categories</h2>
+              </div>
+              <button className="icon-button drawer-close" onClick={() => setIsCategoryMenuOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="drawer-category-list">
+              <button onClick={() => openCategory("All")}>
+                <Sparkles size={18} />
+                <span>All Products</span>
+                <ChevronRight size={16} />
+              </button>
+              {categories.map((category) => (
+                <button key={category} onClick={() => openCategory(category)}>
+                  <Sparkles size={18} />
+                  <span>{category}</span>
+                  <ChevronRight size={16} />
+                </button>
+              ))}
+            </div>
+          </aside>
+        </div>
+      )}
 
       <main>{renderPage()}</main>
 
@@ -1028,11 +1318,13 @@ function OrderSummary({
   subtotal,
   deliveryFee,
   grandTotal,
+  savings = 0,
   children
 }: {
   subtotal: number;
   deliveryFee: number;
   grandTotal: number;
+  savings?: number;
   children: ReactNode;
 }) {
   return (
@@ -1049,6 +1341,12 @@ function OrderSummary({
         <span>Delivery</span>
         <strong>{deliveryFee === 0 ? "Free" : money(deliveryFee)}</strong>
       </div>
+      {savings > 0 && (
+        <div className="summary-saving">
+          <span>You save</span>
+          <strong>{money(savings)}</strong>
+        </div>
+      )}
       <div className="summary-total">
         <span>Total</span>
         <strong>{money(grandTotal)}</strong>
