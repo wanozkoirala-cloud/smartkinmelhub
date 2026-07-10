@@ -60,14 +60,23 @@ type CartItem = {
 type CheckoutDetails = {
   fullName: string;
   mobile: string;
-  city: string;
+  email: string;
+  province: string;
+  district: string;
+  municipality: string;
+  ward: string;
   address: string;
+  branch: string;
+  deliveryType: string;
+  specialRequest: string;
+  paymentScreenshot: string;
 };
 
 type OrderNotice = {
   message: string;
   whatsappUrl: string;
   emailUrl: string;
+  ncmOrderId?: string;
 };
 
 type Route =
@@ -244,6 +253,32 @@ const products: Product[] = [
 ];
 
 const banners = ["Mega Clearance Week", "Brand New Arrivals", "Mobile Deals Under NPR 10,000"];
+
+const fallbackBranches = [
+  "TINKUNE",
+  "KATHMANDU",
+  "LALITPUR",
+  "BHAKTAPUR",
+  "POKHARA",
+  "BIRATNAGAR",
+  "BIRGUNJ",
+  "BUTWAL",
+  "CHITWAN",
+  "DHARAN"
+];
+
+const deliveryTypes = [
+  { value: "Door2Door", label: "Door to Door", detail: "NCM pickup and delivery" },
+  { value: "Branch2Door", label: "Branch to Door", detail: "Store drops at branch, NCM delivers" },
+  { value: "Door2Branch", label: "Door to Branch", detail: "NCM pickup, customer collects" },
+  { value: "Branch2Branch", label: "Branch to Branch", detail: "Branch drop and branch collection" }
+];
+
+const paymentQrByMethod: Record<string, string> = {
+  eSewa: "/payments/esewa-qr.jpeg",
+  Khalti: "/payments/khalti-qr.png",
+  Fonepay: "/payments/fonepay-qr.jpeg"
+};
 
 const categoryOverviews: Record<string, { summary: string; highlights: string[] }> = {
   All: {
@@ -471,11 +506,23 @@ function App() {
   const [heroIndex, setHeroIndex] = useState(0);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("eSewa");
+  const [branches, setBranches] = useState<string[]>(fallbackBranches);
+  const [shippingCharge, setShippingCharge] = useState<number | null>(null);
+  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  const [ncmError, setNcmError] = useState("");
   const [checkoutDetails, setCheckoutDetails] = useState<CheckoutDetails>({
     fullName: "",
     mobile: "",
-    city: "",
-    address: ""
+    email: "",
+    province: "",
+    district: "",
+    municipality: "",
+    ward: "",
+    address: "",
+    branch: "KATHMANDU",
+    deliveryType: "Door2Door",
+    specialRequest: "",
+    paymentScreenshot: ""
   });
   const [orderNotice, setOrderNotice] = useState<OrderNotice | null>(null);
 
@@ -483,6 +530,58 @@ function App() {
     const onHashChange = () => setRoute(routeFromHash());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  useEffect(() => {
+    if (route.name !== "checkout" || !checkoutDetails.branch) return;
+
+    const params = new URLSearchParams({
+      creation: "TINKUNE",
+      destination: checkoutDetails.branch,
+      type: checkoutDetails.deliveryType
+    });
+
+    fetch(`/api/ncm/shipping-rate?${params.toString()}`)
+      .then((response) => (response.ok ? response.json() : Promise.reject(response)))
+      .then((data) => {
+        const value =
+          Number(data?.delivery_charge) ||
+          Number(data?.charge) ||
+          Number(data?.rate) ||
+          Number(data?.amount);
+        setShippingCharge(Number.isFinite(value) && value > 0 ? value : null);
+      })
+      .catch(() => {
+        setShippingCharge(null);
+      });
+  }, [checkoutDetails.branch, checkoutDetails.deliveryType, route.name]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    fetch("/api/ncm/branches")
+      .then((response) => (response.ok ? response.json() : Promise.reject(response)))
+      .then((data) => {
+        if (!isMounted || !Array.isArray(data)) return;
+        const names = data
+          .map((branch) =>
+            typeof branch === "string"
+              ? branch
+              : branch?.name || branch?.branch || branch?.branch_name || branch?.title
+          )
+          .filter(Boolean);
+
+        if (names.length > 0) {
+          setBranches(Array.from(new Set(names)));
+        }
+      })
+      .catch(() => {
+        setBranches(fallbackBranches);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const navigate = (nextRoute: Route) => {
@@ -508,21 +607,25 @@ function App() {
     (total, item) => total + (item.product.oldPrice - item.product.price) * item.quantity,
     0
   );
-  const deliveryFee = subtotal > 0 && subtotal < 10000 ? 250 : 0;
+  const deliveryFee = shippingCharge ?? (subtotal > 0 && subtotal < 10000 ? 250 : 0);
   const grandTotal = subtotal + deliveryFee;
   const routeCategory = route.name === "category" ? route.category : selectedCategory;
   const visibleProducts = routeCategory === "All" ? products : products.filter((product) => product.category === routeCategory);
   const activeBanner = banners[heroIndex % banners.length];
   const activeProduct = route.name === "product" ? products.find((product) => product.id === route.id) : undefined;
   const categoryOverview = categoryOverviews[routeCategory] ?? categoryOverviews.All;
-  const selectedPaymentQr = paymentMethod === "Khalti" || paymentMethod === "Fonepay" ? "/payments/payment-qr-2.jpeg" : "/payments/payment-qr-1.jpeg";
-  const requiresDigitalPayment = paymentMethod !== "Cash on Delivery";
+  const selectedPaymentQr = paymentQrByMethod[paymentMethod];
+  const requiresDigitalPayment = Boolean(selectedPaymentQr);
   const canPlaceOrder = Boolean(
     cart.length > 0 &&
       checkoutDetails.fullName.trim() &&
       checkoutDetails.mobile.trim() &&
-      checkoutDetails.city.trim() &&
-      checkoutDetails.address.trim()
+      checkoutDetails.province.trim() &&
+      checkoutDetails.district.trim() &&
+      checkoutDetails.municipality.trim() &&
+      checkoutDetails.ward.trim() &&
+      checkoutDetails.address.trim() &&
+      checkoutDetails.branch.trim()
   );
 
   const addToCart = (product: Product) => {
@@ -570,9 +673,17 @@ function App() {
       "",
       `Customer: ${checkoutDetails.fullName}`,
       `Mobile: ${checkoutDetails.mobile}`,
-      `City/District: ${checkoutDetails.city}`,
+      checkoutDetails.email ? `Email: ${checkoutDetails.email}` : "",
+      `Province: ${checkoutDetails.province}`,
+      `District: ${checkoutDetails.district}`,
+      `Municipality: ${checkoutDetails.municipality}`,
+      `Ward: ${checkoutDetails.ward}`,
       `Address: ${checkoutDetails.address}`,
+      `NCM Destination Branch: ${checkoutDetails.branch}`,
+      `Delivery Type: ${checkoutDetails.deliveryType}`,
       `Payment: ${paymentMethod}`,
+      checkoutDetails.paymentScreenshot ? `Payment Screenshot: ${checkoutDetails.paymentScreenshot}` : "",
+      checkoutDetails.specialRequest ? `Special Request: ${checkoutDetails.specialRequest}` : "",
       "",
       "Items:",
       items,
@@ -585,17 +696,75 @@ function App() {
     ].join("\n");
   };
 
-  const handlePlaceOrder = () => {
-    const message = buildOrderMessage();
+  const handlePlaceOrder = async () => {
+    if (!canPlaceOrder || isPlacingOrder) return;
+
+    setIsPlacingOrder(true);
+    setNcmError("");
+
+    const orderReference = `SKH-${Date.now()}`;
+    const packageSummary = cart
+      .map((item) => `${item.product.name} x${item.quantity}`)
+      .join(", ")
+      .slice(0, 180);
+    const ncmPayload = {
+      name: checkoutDetails.fullName,
+      phone: checkoutDetails.mobile,
+      phone2: "",
+      cod_charge: paymentMethod === "Cash on Delivery" ? String(grandTotal) : "0",
+      address: `${checkoutDetails.address}, Ward ${checkoutDetails.ward}, ${checkoutDetails.municipality}, ${checkoutDetails.district}, ${checkoutDetails.province}`,
+      fbranch: "TINKUNE",
+      branch: checkoutDetails.branch,
+      package: packageSummary || "SmartKinmelHub order",
+      vref_id: orderReference,
+      instruction: [
+        `Payment: ${paymentMethod}`,
+        checkoutDetails.email ? `Email: ${checkoutDetails.email}` : "",
+        checkoutDetails.paymentScreenshot ? `Payment screenshot: ${checkoutDetails.paymentScreenshot}` : "",
+        checkoutDetails.specialRequest ? `Special request: ${checkoutDetails.specialRequest}` : ""
+      ]
+        .filter(Boolean)
+        .join(" | "),
+      delivery_type: checkoutDetails.deliveryType,
+      weight: "1"
+    };
+
+    let ncmOrderId = "";
+
+    try {
+      const response = await fetch("/api/ncm/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ncmPayload)
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result?.detail || result?.Error || result?.error || "NCM order creation failed");
+      }
+
+      ncmOrderId = String(result?.orderid || result?.order_id || "");
+    } catch (error) {
+      setNcmError(error instanceof Error ? error.message : "NCM order creation failed");
+      ncmOrderId = "";
+    }
+
+    const message = [
+      buildOrderMessage(),
+      "",
+      `Vendor Reference: ${orderReference}`,
+      ncmOrderId ? `NCM Order ID: ${ncmOrderId}` : "NCM Order ID: pending manual delivery confirmation"
+    ].join("\n");
     const whatsappUrl = `https://wa.me/9779851223170?text=${encodeURIComponent(message)}`;
     const emailUrl = `mailto:wanozkoirala@gmail.com?subject=${encodeURIComponent(
       "New SmartKinmelHub order"
     )}&body=${encodeURIComponent(message)}`;
 
-    setOrderNotice({ message, whatsappUrl, emailUrl });
+    setOrderNotice({ message, whatsappUrl, emailUrl, ncmOrderId });
     window.open(whatsappUrl, "_blank", "noopener,noreferrer");
     window.open(emailUrl, "_blank", "noopener,noreferrer");
     setCart([]);
+    setIsPlacingOrder(false);
     navigate({ name: "success" });
   };
 
@@ -994,24 +1163,118 @@ function App() {
               <input
                 value={checkoutDetails.fullName}
                 onChange={(event) => updateCheckoutDetail("fullName", event.target.value)}
-                placeholder="Full name"
+                placeholder="Full name *"
               />
               <input
                 value={checkoutDetails.mobile}
                 onChange={(event) => updateCheckoutDetail("mobile", event.target.value)}
-                placeholder="Mobile number"
+                placeholder="Mobile number *"
               />
               <input
-                value={checkoutDetails.city}
-                onChange={(event) => updateCheckoutDetail("city", event.target.value)}
-                placeholder="City or district"
+                value={checkoutDetails.province}
+                onChange={(event) => updateCheckoutDetail("province", event.target.value)}
+                placeholder="Province *"
+              />
+              <input
+                value={checkoutDetails.district}
+                onChange={(event) => updateCheckoutDetail("district", event.target.value)}
+                placeholder="District *"
+              />
+              <input
+                value={checkoutDetails.municipality}
+                onChange={(event) => updateCheckoutDetail("municipality", event.target.value)}
+                placeholder="Municipality *"
+              />
+              <input
+                value={checkoutDetails.ward}
+                onChange={(event) => updateCheckoutDetail("ward", event.target.value)}
+                placeholder="Ward *"
               />
               <input
                 value={checkoutDetails.address}
                 onChange={(event) => updateCheckoutDetail("address", event.target.value)}
-                placeholder="Area, street, landmark"
+                placeholder="Area, street, landmark *"
+              />
+              <input
+                value={checkoutDetails.email}
+                onChange={(event) => updateCheckoutDetail("email", event.target.value)}
+                placeholder="Email address (optional)"
               />
             </div>
+          </section>
+          <section>
+            <h2>
+              <ShoppingCart size={20} />
+              Order Quantity
+            </h2>
+            <div className="checkout-cart-list">
+              {cart.map((item) => (
+                <div className="checkout-cart-item" key={item.product.id}>
+                  <img src={item.product.image} alt={item.product.name} />
+                  <div>
+                    <strong>{item.product.name}</strong>
+                    <span>{money(item.product.price)} each</span>
+                  </div>
+                  <div className="quantity-control">
+                    <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)}>
+                      <Minus size={15} />
+                    </button>
+                    <span>{item.quantity}</span>
+                    <button
+                      disabled={item.quantity >= item.product.stock}
+                      onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
+                    >
+                      <Plus size={15} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+          <section>
+            <h2>
+              <Truck size={20} />
+              NCM Delivery
+            </h2>
+            <div className="form-grid">
+              <select
+                value={checkoutDetails.branch}
+                onChange={(event) => updateCheckoutDetail("branch", event.target.value)}
+              >
+                {branches.map((branch) => (
+                  <option key={branch} value={branch}>
+                    {branch}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={checkoutDetails.deliveryType}
+                onChange={(event) => updateCheckoutDetail("deliveryType", event.target.value)}
+              >
+                {deliveryTypes.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="delivery-methods">
+              {deliveryTypes.map((type) => (
+                <button
+                  key={type.value}
+                  className={checkoutDetails.deliveryType === type.value ? "selected" : ""}
+                  onClick={() => updateCheckoutDetail("deliveryType", type.value)}
+                >
+                  <strong>{type.label}</strong>
+                  <span>{type.detail}</span>
+                </button>
+              ))}
+            </div>
+            <p>
+              Shipping charge: <strong>{deliveryFee === 0 ? "Free" : money(deliveryFee)}</strong>.
+              Estimated delivery is confirmed after NCM accepts the order.
+            </p>
+            {ncmError && <p className="error-note">{ncmError}</p>}
           </section>
           <section>
             <h2>
@@ -1035,32 +1298,62 @@ function App() {
                 <div>
                   <h3>
                     <QrCode size={19} />
-                    Scan and Pay
+                    {paymentMethod} Scan and Pay
                   </h3>
                   <p>Use this QR for {paymentMethod}. Keep the payment screenshot for order confirmation.</p>
                 </div>
                 <div className="qr-grid">
                   <img src={selectedPaymentQr} alt={`${paymentMethod} payment QR`} />
-                  <img src={selectedPaymentQr === "/payments/payment-qr-1.jpeg" ? "/payments/payment-qr-2.jpeg" : "/payments/payment-qr-1.jpeg"} alt="Alternative digital payment QR" />
+                </div>
+                <input
+                  value={checkoutDetails.paymentScreenshot}
+                  onChange={(event) => updateCheckoutDetail("paymentScreenshot", event.target.value)}
+                  placeholder="Payment screenshot file name or reference (optional)"
+                />
+              </div>
+            )}
+            {paymentMethod === "Card" && (
+              <div className="card-payment-box">
+                <div>
+                  <h3>
+                    <CreditCard size={19} />
+                    Credit / Debit Card
+                  </h3>
+                  <p>Secure card UI prepared for future payment gateway integration. Real card charging is not enabled yet.</p>
+                </div>
+                <div className="form-grid">
+                  <input placeholder="Cardholder name" />
+                  <input placeholder="Card number" />
+                  <input placeholder="MM / YY" />
+                  <input placeholder="CVV" />
+                </div>
+                <div className="card-badges">
+                  <span>Visa</span>
+                  <span>Mastercard</span>
+                  <span>UnionPay</span>
                 </div>
               </div>
             )}
           </section>
           <section>
             <h2>
-              <Truck size={20} />
-              Delivery Promise
+              <Mail size={20} />
+              Optional Request
             </h2>
-            <p>Kathmandu Valley delivery starts from 24 hours. Outside valley delivery is confirmed by phone.</p>
+            <textarea
+              value={checkoutDetails.specialRequest}
+              onChange={(event) => updateCheckoutDetail("specialRequest", event.target.value)}
+              placeholder="Gift note, delivery instruction, product question, or other request (optional)"
+            />
           </section>
           <section>
             <h2>
-              <Mail size={20} />
+              <Bell size={20} />
               Order Notification
             </h2>
             <p>
-              After Place Order, a prepared WhatsApp message to +977 9851223170 and email draft to
-              wanozkoirala@gmail.com will open with the buyer and cart details.
+              After Place Order, the site creates the NCM order and opens a prepared WhatsApp message to
+              +977 9851223170 plus an email draft to wanozkoirala@gmail.com.
             </p>
           </section>
         </div>
@@ -1070,7 +1363,7 @@ function App() {
             disabled={!canPlaceOrder}
             onClick={handlePlaceOrder}
           >
-            Place Order
+            {isPlacingOrder ? "Placing Order..." : "Place Order"}
           </button>
           {!canPlaceOrder && cart.length > 0 && (
             <p className="summary-note">Fill all delivery fields before placing the order.</p>
